@@ -64,12 +64,12 @@ def extract_coords(data):
 def index(): return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health(): return jsonify({"status":"ok","v":19,"scanner":"24h"})
+def health(): return jsonify({"status":"ok","v":20})
 
 @app.route("/wallet")
 def wallet():
     address=request.args.get("address",DEF_WALLET)
-    url=(f"https://api.bscscan.com/api?module=account&action=tokenbalance"
+    url=(f"https://api.bscscan.com/v2/api?chainid=56&module=account&action=tokenbalance"
          f"&contractaddress={USDT_CONTRACT}&address={address}&tag=latest&apikey={BSC_KEY}")
     try:
         r=requests.get(url,timeout=15); d=r.json()
@@ -87,7 +87,7 @@ def scan_today():
     hours=int(request.args.get("hours","24"))  # Letzte N Stunden
     try:
         since_ts=int(time.time())-(hours*3600)
-        url=(f"https://api.bscscan.com/api?module=account&action=tokentx"
+        url=(f"https://api.bscscan.com/v2/api?chainid=56&module=account&action=tokentx"
              f"&contractaddress={USDT_CONTRACT}&address={address}"
              f"&startblock=0&endblock=99999999&page=1&offset=100&sort=desc&apikey={BSC_KEY}")
         r=requests.get(url,timeout=20)
