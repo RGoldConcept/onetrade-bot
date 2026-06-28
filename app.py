@@ -64,68 +64,75 @@ def extract_coords(data):
 def index(): return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health(): return jsonify({"status":"ok","v":23})
+def health(): return jsonify({"status":"ok","v":24})
 
 @app.route("/wallet")
 def wallet():
     address=request.args.get("address",DEF_WALLET)
-    url=(f"https://api.bscscan.com/v2/api?chainid=56&module=account&action=tokenbalance"
-         f"&contractaddress={USDT_CONTRACT}&address={address}&tag=latest&apikey={BSC_KEY}")
+    # Ankr Public RPC – kein API Key nötig, kein IP-Block
     try:
-        r=requests.get(url,timeout=15); d=r.json()
-        if d.get("status")=="1": return jsonify({"ok":True,"balance":int(d["result"])/1e18})
-        # Auch bei fehlerhafter message versuchen den Wert zu lesen
-        if d.get("result") and str(d["result"]).isdigit():
-            return jsonify({"ok":True,"balance":int(d["result"])/1e18})
-        return jsonify({"ok":False,"error":d.get("message","API Fehler"),"raw":str(d)}),400
+        payload={"jsonrpc":"2.0","method":"eth_call","params":[{
+            "to":USDT_CONTRACT,
+            "data":"0x70a08231000000000000000000000000"+address[2:]
+        },"latest"],"id":1}
+        r=requests.post("https://rpc.ankr.com/bsc",json=payload,timeout=15)
+        d=r.json()
+        if "result" in d and d["result"] and d["result"]!="0x":
+            bal=int(d["result"],16)/1e18
+            return jsonify({"ok":True,"balance":round(bal,4)})
+        return jsonify({"ok":True,"balance":0.0})
     except Exception as e:
         return jsonify({"ok":False,"error":str(e)}),500
 
 @app.route("/scan_today")
 def scan_today():
     address=request.args.get("address",DEF_WALLET)
-    hours=int(request.args.get("hours","24"))  # Letzte N Stunden
+    hours=int(request.args.get("hours","24"))
+    since_ts=int(time.time())-(hours*3600)
+    addr_lower=address.lower()
+    TRANSFER_TOPIC="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+    addr_topic="0x000000000000000000000000"+addr_lower[2:]
     try:
-        since_ts=int(time.time())-(hours*3600)
-        url=(f"https://api.bscscan.com/v2/api?chainid=56&module=account&action=tokentx"
-             f"&contractaddress={USDT_CONTRACT}&address={address}"
-             f"&startblock=0&endblock=99999999&page=1&offset=100&sort=desc&apikey={BSC_KEY}")
-        r=requests.get(url,timeout=20)
-        raw=r.text
-        try: d=r.json()
-        except: return jsonify({"ok":False,"error":"JSON parse Fehler","raw":raw[:200]}),500
-
-        # BscScan gibt status "0" mit message "No transactions found" wenn leer
-        if d.get("status")=="0" and "No transactions" in str(d.get("result","")):
-            return jsonify({"ok":True,"total_incoming":0.0,"transactions":[],
-                            "count":0,"date":datetime.now().strftime("%d.%m.%Y"),
-                            "note":"Keine Transaktionen gefunden"})
-
-        txs=d.get("result",[])
-        if not isinstance(txs,list):
-            return jsonify({"ok":False,"error":"Unerwartetes Format: "+str(d.get("message","")),"raw":str(d)[:200]}),400
-
-        today_txs=[]; total_in=0.0; addr_lower=address.lower()
-        for tx in txs:
-            ts=int(tx.get("timeStamp",0))
-            if ts<since_ts: continue  # Nicht break, da nicht immer sortiert
-            if tx.get("to","").lower()==addr_lower:
-                amt=int(tx.get("value",0))/1e18
-                total_in+=amt
-                today_txs.append({
-                    "hash":tx.get("hash",""),
-                    "amount":round(amt,4),
-                    "time":datetime.fromtimestamp(ts).strftime("%d.%m %H:%M"),
-                    "from":tx.get("from","")[:14]+"..."
-                })
-
+        blocks_back=min(hours*1200,50000)
+        bl_r=requests.post("https://rpc.ankr.com/bsc",
+            json={"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1},timeout=10)
+        cur_block=int(bl_r.json()["result"],16)
+        from_block=cur_block-blocks_back
+        payload={"jsonrpc":"2.0","method":"eth_getLogs","params":[{
+            "fromBlock":hex(from_block),"toBlock":"latest",
+            "address":USDT_CONTRACT,
+            "topics":[TRANSFER_TOPIC,None,addr_topic]
+        }],"id":1}
+        r=requests.post("https://rpc.ankr.com/bsc",json=payload,timeout=30)
+        d=r.json()
+        logs=d.get("result",[])
+        if not isinstance(logs,list):
+            return jsonify({"ok":False,"error":"RPC Fehler: "+str(d.get("error",""))})
+        # Block timestamps
+        block_times={}
+        unique_blocks=list(set(l["blockNumber"] for l in logs))[:15]
+        for bn in unique_blocks:
+            try:
+                br=requests.post("https://rpc.ankr.com/bsc",
+                    json={"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[bn,False],"id":1},timeout=8)
+                block_times[bn]=int(br.json()["result"]["timestamp"],16)
+            except: block_times[bn]=int(time.time())
+        today_txs=[]; total_in=0.0
+        for log in logs:
+            ts=block_times.get(log["blockNumber"],int(time.time()))
+            if ts<since_ts: continue
+            amt=int(log["data"],16)/1e18
+            total_in+=amt
+            from_addr="0x"+log["topics"][1][-40:] if len(log.get("topics",[]))>1 else "?"
+            today_txs.append({"hash":log["transactionHash"],"amount":round(amt,4),
+                "time":datetime.fromtimestamp(ts).strftime("%d.%m %H:%M"),
+                "from":from_addr[:14]+"..."})
+        today_txs.sort(key=lambda x:x["time"],reverse=True)
         return jsonify({"ok":True,"total_incoming":round(total_in,4),
-                        "transactions":today_txs,"count":len(today_txs),
-                        "date":datetime.now().strftime("%d.%m.%Y"),
-                        "hours_scanned":hours})
+            "transactions":today_txs[:20],"count":len(today_txs),
+            "date":datetime.now().strftime("%d.%m.%Y"),"hours_scanned":hours})
     except Exception as e:
         return jsonify({"ok":False,"error":str(e)}),500
-
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
     if request.method=="OPTIONS": return jsonify({})
