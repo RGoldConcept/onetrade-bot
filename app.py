@@ -64,7 +64,7 @@ def extract_coords(data):
 def index(): return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health(): return jsonify({"status":"ok","v":24})
+def health(): return jsonify({"status":"ok","v":25})
 
 @app.route("/wallet")
 def wallet():
@@ -92,47 +92,77 @@ def scan_today():
     addr_lower=address.lower()
     TRANSFER_TOPIC="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
     addr_topic="0x000000000000000000000000"+addr_lower[2:]
+
     try:
-        blocks_back=min(hours*1200,50000)
+        # Aktuellen Block holen
         bl_r=requests.post("https://rpc.ankr.com/bsc",
-            json={"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1},timeout=10)
-        cur_block=int(bl_r.json()["result"],16)
-        from_block=cur_block-blocks_back
+            json={"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1},
+            timeout=10,headers={"Content-Type":"application/json"})
+        bl_d=bl_r.json()
+        if "result" not in bl_d:
+            return jsonify({"ok":False,"error":"blockNumber Fehler","raw":str(bl_d)[:200]})
+
+        cur_block=int(bl_d["result"],16)
+        blocks_back=min(hours*1200,50000)
+        from_block=max(0,cur_block-blocks_back)
+
+        # Logs holen
         payload={"jsonrpc":"2.0","method":"eth_getLogs","params":[{
             "fromBlock":hex(from_block),"toBlock":"latest",
             "address":USDT_CONTRACT,
             "topics":[TRANSFER_TOPIC,None,addr_topic]
         }],"id":1}
-        r=requests.post("https://rpc.ankr.com/bsc",json=payload,timeout=30)
+        r=requests.post("https://rpc.ankr.com/bsc",json=payload,
+            timeout=30,headers={"Content-Type":"application/json"})
         d=r.json()
+
+        if "error" in d:
+            return jsonify({"ok":False,"error":"getLogs Fehler: "+str(d["error"])[:200]})
+
         logs=d.get("result",[])
         if not isinstance(logs,list):
-            return jsonify({"ok":False,"error":"RPC Fehler: "+str(d.get("error",""))})
-        # Block timestamps
+            return jsonify({"ok":False,"error":"Kein Array: "+str(d)[:200]})
+
+        # Block timestamps batch holen
         block_times={}
         unique_blocks=list(set(l["blockNumber"] for l in logs))[:15]
         for bn in unique_blocks:
             try:
                 br=requests.post("https://rpc.ankr.com/bsc",
-                    json={"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[bn,False],"id":1},timeout=8)
-                block_times[bn]=int(br.json()["result"]["timestamp"],16)
-            except: block_times[bn]=int(time.time())
+                    json={"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[bn,False],"id":1},
+                    timeout=8,headers={"Content-Type":"application/json"})
+                br_d=br.json()
+                if br_d.get("result") and br_d["result"].get("timestamp"):
+                    block_times[bn]=int(br_d["result"]["timestamp"],16)
+                else:
+                    block_times[bn]=int(time.time())
+            except:
+                block_times[bn]=int(time.time())
+
         today_txs=[]; total_in=0.0
         for log in logs:
             ts=block_times.get(log["blockNumber"],int(time.time()))
             if ts<since_ts: continue
-            amt=int(log["data"],16)/1e18
+            try: amt=int(log["data"],16)/1e18
+            except: continue
             total_in+=amt
             from_addr="0x"+log["topics"][1][-40:] if len(log.get("topics",[]))>1 else "?"
-            today_txs.append({"hash":log["transactionHash"],"amount":round(amt,4),
+            today_txs.append({
+                "hash":log["transactionHash"],
+                "amount":round(amt,4),
                 "time":datetime.fromtimestamp(ts).strftime("%d.%m %H:%M"),
-                "from":from_addr[:14]+"..."})
+                "from":from_addr[:16]+"..."
+            })
+
         today_txs.sort(key=lambda x:x["time"],reverse=True)
         return jsonify({"ok":True,"total_incoming":round(total_in,4),
             "transactions":today_txs[:20],"count":len(today_txs),
-            "date":datetime.now().strftime("%d.%m.%Y"),"hours_scanned":hours})
+            "date":datetime.now().strftime("%d.%m.%Y"),
+            "hours_scanned":hours,"blocks_scanned":blocks_back})
+
     except Exception as e:
-        return jsonify({"ok":False,"error":str(e)}),500
+        import traceback
+        return jsonify({"ok":False,"error":str(e),"trace":traceback.format_exc()[-300:]}),500
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
     if request.method=="OPTIONS": return jsonify({})
