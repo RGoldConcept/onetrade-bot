@@ -31,11 +31,12 @@ def make_poster(pct,ds):
             fp=ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",118)
         except:
             fd=fp=ImageFont.load_default()
-    s="+" if pct>=0 else "-"
-    # Datum in weisse Box (schwarz)
+    # Datum in weisse Box
     d.text((235,615),ds,fill="#111111",font=fd,anchor="mm")
-    # Zahl OHNE % in dunkle Box, Farbe passend zum Template
-    d.text((630,525),f"{s}{abs(pct):.2f}",fill="#00e5ff",font=fp,anchor="mm")
+    # + links, Zahl zentriert in der Box
+    sign="+" if pct>=0 else "-"
+    d.text((455,525),sign,fill="#00e5ff",font=fp,anchor="lm")
+    d.text((680,525),f"{abs(pct):.2f}",fill="#00e5ff",font=fp,anchor="mm")
     buf=io.BytesIO()
     img.save(buf,format="PNG")
     return buf.getvalue()
@@ -44,7 +45,7 @@ def make_poster(pct,ds):
 def index():return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health():return jsonify({"status":"ok","v":11})
+def health():return jsonify({"status":"ok","v":12})
 
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
