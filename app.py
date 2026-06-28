@@ -64,25 +64,31 @@ def extract_coords(data):
 def index(): return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health(): return jsonify({"status":"ok","v":25})
+def health(): return jsonify({"status":"ok","v":26})
 
 @app.route("/wallet")
 def wallet():
     address=request.args.get("address",DEF_WALLET)
-    # Ankr Public RPC – kein API Key nötig, kein IP-Block
-    try:
-        payload={"jsonrpc":"2.0","method":"eth_call","params":[{
-            "to":USDT_CONTRACT,
-            "data":"0x70a08231000000000000000000000000"+address[2:]
-        },"latest"],"id":1}
-        r=requests.post("https://rpc.ankr.com/bsc",json=payload,timeout=15)
-        d=r.json()
-        if "result" in d and d["result"] and d["result"]!="0x":
-            bal=int(d["result"],16)/1e18
-            return jsonify({"ok":True,"balance":round(bal,4)})
-        return jsonify({"ok":True,"balance":0.0})
-    except Exception as e:
-        return jsonify({"ok":False,"error":str(e)}),500
+    RPC_ENDPOINTS=[
+        "https://bsc-dataseed1.binance.org/",
+        "https://bsc-dataseed2.binance.org/",
+        "https://bsc-dataseed1.defibit.io/",
+        "https://bsc.publicnode.com",
+    ]
+    for endpoint in RPC_ENDPOINTS:
+        try:
+            r=requests.post(endpoint,
+                json={"jsonrpc":"2.0","method":"eth_call","params":[{
+                    "to":USDT_CONTRACT,
+                    "data":"0x70a08231000000000000000000000000"+address[2:]
+                },"latest"],"id":1},
+                timeout=10,headers={"Content-Type":"application/json"})
+            d=r.json()
+            if "result" in d and d["result"] and d["result"]!="0x":
+                bal=int(d["result"],16)/1e18
+                return jsonify({"ok":True,"balance":round(bal,4)})
+        except: continue
+    return jsonify({"ok":True,"balance":0.0,"note":"RPC nicht erreichbar"})
 
 @app.route("/scan_today")
 def scan_today():
@@ -93,49 +99,53 @@ def scan_today():
     TRANSFER_TOPIC="0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
     addr_topic="0x000000000000000000000000"+addr_lower[2:]
 
-    try:
-        # Aktuellen Block holen
-        bl_r=requests.post("https://rpc.ankr.com/bsc",
-            json={"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1},
-            timeout=10,headers={"Content-Type":"application/json"})
-        bl_d=bl_r.json()
-        if "result" not in bl_d:
-            return jsonify({"ok":False,"error":"blockNumber Fehler","raw":str(bl_d)[:200]})
+    # Mehrere freie BSC RPC Provider
+    RPC_ENDPOINTS=[
+        "https://bsc-dataseed1.binance.org/",
+        "https://bsc-dataseed2.binance.org/",
+        "https://bsc-dataseed1.defibit.io/",
+        "https://bsc-dataseed1.ninicoin.io/",
+        "https://bsc.publicnode.com",
+        "https://bsc-rpc.publicnode.com",
+    ]
 
-        cur_block=int(bl_d["result"],16)
+    def rpc_call(method, params, timeout=15):
+        last_err=""
+        for endpoint in RPC_ENDPOINTS:
+            try:
+                r=requests.post(endpoint,
+                    json={"jsonrpc":"2.0","method":method,"params":params,"id":1},
+                    timeout=timeout,headers={"Content-Type":"application/json"})
+                d=r.json()
+                if "result" in d and d["result"] is not None:
+                    return d["result"]
+                last_err=str(d.get("error","no result"))
+            except Exception as e:
+                last_err=str(e)
+        raise Exception(f"Alle RPC fehlgeschlagen: {last_err}")
+
+    try:
+        # Block nummer
+        cur_block=int(rpc_call("eth_blockNumber",[]),16)
         blocks_back=min(hours*1200,50000)
         from_block=max(0,cur_block-blocks_back)
 
-        # Logs holen
-        payload={"jsonrpc":"2.0","method":"eth_getLogs","params":[{
+        # Logs
+        logs=rpc_call("eth_getLogs",[{
             "fromBlock":hex(from_block),"toBlock":"latest",
             "address":USDT_CONTRACT,
             "topics":[TRANSFER_TOPIC,None,addr_topic]
-        }],"id":1}
-        r=requests.post("https://rpc.ankr.com/bsc",json=payload,
-            timeout=30,headers={"Content-Type":"application/json"})
-        d=r.json()
+        }],timeout=30)
 
-        if "error" in d:
-            return jsonify({"ok":False,"error":"getLogs Fehler: "+str(d["error"])[:200]})
-
-        logs=d.get("result",[])
         if not isinstance(logs,list):
-            return jsonify({"ok":False,"error":"Kein Array: "+str(d)[:200]})
+            return jsonify({"ok":False,"error":"Keine Logs: "+str(logs)[:100]})
 
-        # Block timestamps batch holen
+        # Timestamps
         block_times={}
-        unique_blocks=list(set(l["blockNumber"] for l in logs))[:15]
-        for bn in unique_blocks:
+        for bn in list(set(l["blockNumber"] for l in logs))[:15]:
             try:
-                br=requests.post("https://rpc.ankr.com/bsc",
-                    json={"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":[bn,False],"id":1},
-                    timeout=8,headers={"Content-Type":"application/json"})
-                br_d=br.json()
-                if br_d.get("result") and br_d["result"].get("timestamp"):
-                    block_times[bn]=int(br_d["result"]["timestamp"],16)
-                else:
-                    block_times[bn]=int(time.time())
+                bl=rpc_call("eth_getBlockByNumber",[bn,False],timeout=8)
+                block_times[bn]=int(bl["timestamp"],16)
             except:
                 block_times[bn]=int(time.time())
 
@@ -157,12 +167,10 @@ def scan_today():
         today_txs.sort(key=lambda x:x["time"],reverse=True)
         return jsonify({"ok":True,"total_incoming":round(total_in,4),
             "transactions":today_txs[:20],"count":len(today_txs),
-            "date":datetime.now().strftime("%d.%m.%Y"),
-            "hours_scanned":hours,"blocks_scanned":blocks_back})
+            "date":datetime.now().strftime("%d.%m.%Y"),"hours_scanned":hours})
 
     except Exception as e:
-        import traceback
-        return jsonify({"ok":False,"error":str(e),"trace":traceback.format_exc()[-300:]}),500
+        return jsonify({"ok":False,"error":str(e)[:300]}),500
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
     if request.method=="OPTIONS": return jsonify({})
