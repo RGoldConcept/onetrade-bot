@@ -1,11 +1,25 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import requests
 import os
 import base64
 
 app = Flask(__name__)
-CORS(app)
+
+# CORS komplett offen - erlaubt alle Origins inkl. file://
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
+@app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
+@app.route('/<path:path>', methods=['OPTIONS'])
+def options_handler(path):
+    return jsonify({}), 200
 
 BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "8601946674:AAGpvttyRBy7B81uU_frX8BQWk-N68lFTtQ")
 GROUP_ID  = os.environ.get("TG_GROUP_ID",  "-1003900515439")
@@ -29,6 +43,10 @@ def send_tg_photo_b64(png_b64, caption):
     return r.json()
 
 @app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
+
+@app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
 
@@ -51,7 +69,6 @@ def debug():
         "has_image": has_image,
         "image_b64_length": img_len,
         "pct": data.get("pct"),
-        "gained": data.get("gained"),
     })
 
 @app.route("/send", methods=["POST"])
@@ -67,7 +84,7 @@ def send():
     note     = data.get("note", "")
     date_str = data.get("date", "")
     time_str = data.get("time", "")
-    png_b64  = data.get("image_b64", "")   # Base64 PNG vom Browser
+    png_b64  = data.get("image_b64", "")
 
     sign  = "+" if pct >= 0 else ""
     emoji = "📈" if pct >= 0 else "📉"
