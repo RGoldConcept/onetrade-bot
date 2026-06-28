@@ -32,10 +32,10 @@ def make_poster(pct,ds):
         except:
             fd=fp=ImageFont.load_default()
     s="+" if pct>=0 else "-"
-    # Datum in weisse Box
+    # Datum in weisse Box (schwarz)
     d.text((235,615),ds,fill="#111111",font=fd,anchor="mm")
-    # Zahl OHNE % (% ist bereits im Template)
-    d.text((630,525),f"{s}{abs(pct):.2f}",fill="#00dca8",font=fp,anchor="mm")
+    # Zahl OHNE % in dunkle Box, Farbe passend zum Template
+    d.text((630,525),f"{s}{abs(pct):.2f}",fill="#00e5ff",font=fp,anchor="mm")
     buf=io.BytesIO()
     img.save(buf,format="PNG")
     return buf.getvalue()
@@ -44,7 +44,7 @@ def make_poster(pct,ds):
 def index():return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health():return jsonify({"status":"ok","v":10})
+def health():return jsonify({"status":"ok","v":11})
 
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
