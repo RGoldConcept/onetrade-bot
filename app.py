@@ -32,8 +32,8 @@ def make_poster(pct,ds):
         except:
             fd=fp=ImageFont.load_default()
     s="+" if pct>=0 else ""
-    d.text((252,632),ds,fill="#111111",font=fd,anchor="mm")
-    d.text((642,520),f"{s}{pct:.2f}%",fill="#00dca8",font=fp,anchor="mm")
+    d.text((235,615),ds,fill="#111111",font=fd,anchor="mm")
+    d.text((660,525),f"{s}{pct:.2f}%",fill="#00dca8",font=fp,anchor="mm")
     buf=io.BytesIO()
     img.save(buf,format="PNG")
     return buf.getvalue()
@@ -42,7 +42,7 @@ def make_poster(pct,ds):
 def index():return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health():return jsonify({"status":"ok","v":7})
+def health():return jsonify({"status":"ok","v":8})
 
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
