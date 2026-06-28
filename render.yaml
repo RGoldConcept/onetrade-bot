@@ -2,12 +2,10 @@ services:
   - type: web
     name: onetrade-bot
     env: python
-    buildCommand: pip install -r requirements.txt && playwright install chromium && playwright install-deps chromium
+    buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     envVars:
       - key: TG_BOT_TOKEN
         value: 8601946674:AAGpvttyRBy7B81uU_frX8BQWk-N68lFTtQ
       - key: TG_GROUP_ID
         value: "-1003900515439"
-      - key: BSCSCAN_API_KEY
-        value: YourApiKeyToken
