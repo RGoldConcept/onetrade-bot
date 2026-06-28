@@ -24,24 +24,18 @@ def make_poster(pct, date_str):
     tpl_bytes = b64.b64decode(_TPL_B64)
     img = Image.open(io.BytesIO(tpl_bytes)).copy()
     draw = ImageDraw.Draw(img)
-
-    # Fonts laden (Fallback auf Default)
     try:
         font_date = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 36)
         font_pct  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 96)
     except:
         font_date = ImageFont.load_default()
         font_pct  = font_date
-
     sign = "+" if pct >= 0 else ""
     pct_str = f"{sign}{pct:.2f}%"
-
-    # Datum in untere linke Box (Mitte: 207, 730)
+    # Datum: Mitte der leeren Datum-Box (207, 730)
     draw.text((207, 730), date_str, fill="#ffffff", font=font_date, anchor="mm")
-
-    # % in rechte Box (Mitte: 600, 614)
+    # %: Mitte der leeren %-Box (600, 614)
     draw.text((600, 614), pct_str, fill="#00dca8", font=font_pct, anchor="mm")
-
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
@@ -76,7 +70,6 @@ def send():
         note    = str(data.get("note",""))
         date_str= str(data.get("date", datetime.now().strftime("%d.%m.%Y")))
         time_str= str(data.get("time",""))
-
         sign = "+" if pct >= 0 else ""
         emoji = "\U0001f4c8" if pct >= 0 else "\U0001f4c9"
         cap  = f"{emoji} *OneTrade \u2013 T\u00e4gliche Aussch\u00fcttung*\n\n"
@@ -89,8 +82,6 @@ def send():
         if note: cap += f"\U0001f4dd {note}\n"+"\u2501"*17+"\n"
         cap += "_Powered by OneTrade AI System_\n"
         cap += "_Vergangene Ergebnisse sind keine Garantie f\u00fcr die Zukunft._"
-
-        # Poster serverseitig rendern
         try:
             png_bytes = make_poster(pct, date_str)
             r = requests.post(
@@ -98,13 +89,11 @@ def send():
                 files={"photo":("poster.png", png_bytes, "image/png")},
                 data={"chat_id":GROUP_ID,"caption":cap,"parse_mode":"Markdown"},
                 timeout=30)
-        except Exception as img_err:
-            # Fallback: nur Text
+        except Exception:
             r = requests.post(
                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                 json={"chat_id":GROUP_ID,"text":cap,"parse_mode":"Markdown","disable_web_page_preview":True},
                 timeout=15)
-
         d = r.json()
         if d.get("ok"): return jsonify({"ok":True,"with_image":True})
         return jsonify({"ok":False,"error":d.get("description","Fehler")}),400
