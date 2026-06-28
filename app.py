@@ -33,7 +33,7 @@ def make_poster(pct,ds):
             fd=fp=ImageFont.load_default()
     s="+" if pct>=0 else ""
     d.text((235,615),ds,fill="#111111",font=fd,anchor="mm")
-    d.text((660,525),f"{s}{pct:.2f}%",fill="#00dca8",font=fp,anchor="mm")
+    d.text((680,525),f"{s}{pct:.2f}%",fill="#00dca8",font=fp,anchor="mm")
     buf=io.BytesIO()
     img.save(buf,format="PNG")
     return buf.getvalue()
@@ -42,7 +42,7 @@ def make_poster(pct,ds):
 def index():return Response(HTML,mimetype="text/html")
 
 @app.route("/health")
-def health():return jsonify({"status":"ok","v":8})
+def health():return jsonify({"status":"ok","v":9})
 
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
@@ -51,10 +51,9 @@ def preview():
         data=request.get_json(force=True,silent=True)or{}
         pct=float(data.get("pct",0))
         ds=str(data.get("date",datetime.now().strftime("%d.%m.%Y")))
-        png=make_poster(pct,ds)
-        return Response(png,mimetype="image/png")
+        return Response(make_poster(pct,ds),mimetype="image/png")
     except Exception as e:
-        return jsonify({"ok":False,"error":str(e)}),500
+        return jsonify({"error":str(e)}),500
 
 @app.route("/test",methods=["GET","POST","OPTIONS"])
 def test():
