@@ -80,7 +80,9 @@ def wallet():
                 return jsonify({"ok":True,"balance":round(bal,4)})
         return jsonify({"ok":True,"balance":0.0})
     except Exception as e:
-     @app.route("/scan_today")
+        return jsonify({"ok":False,"error":str(e)}),500
+
+@app.route("/scan_today")
 def scan_today():
     address=request.args.get("address",DEF_WALLET)
     hours=int(request.args.get("hours","24"))
@@ -131,7 +133,7 @@ def scan_today():
             "balance":round(balance,4),
             "date":datetime.now().strftime("%d.%m.%Y"),"hours_scanned":hours})
     except Exception as e:
-        return jsonify({"ok":False,"error":str(e)}),500eturn jsonify({"ok":False,"error":str(e)[:300]}),500
+        return jsonify({"ok":False,"error":str(e)}),500
 @app.route("/preview",methods=["POST","OPTIONS"])
 def preview():
     if request.method=="OPTIONS": return jsonify({})
