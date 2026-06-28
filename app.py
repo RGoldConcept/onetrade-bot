@@ -39,6 +39,21 @@ def test():
         return jsonify({"ok": True, "message": "Test-Nachricht gesendet!"})
     return jsonify({"ok": False, "error": result.get("description", "Fehler")}), 400
 
+@app.route("/debug", methods=["POST"])
+def debug():
+    data = request.get_json()
+    if not data:
+        return jsonify({"ok": False, "error": "Kein JSON"})
+    has_image = bool(data.get("image_b64", ""))
+    img_len = len(data.get("image_b64", ""))
+    return jsonify({
+        "ok": True,
+        "has_image": has_image,
+        "image_b64_length": img_len,
+        "pct": data.get("pct"),
+        "gained": data.get("gained"),
+    })
+
 @app.route("/send", methods=["POST"])
 def send():
     data = request.get_json()
